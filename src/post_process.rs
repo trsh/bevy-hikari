@@ -3,7 +3,7 @@ use crate::{
     prepass::{PrepassBindGroup, PrepassPipeline, PrepassTextures},
     view::{FrameCounter, PreviousViewUniformOffset},
     HikariConfig, DENOISE_SHADER_HANDLE, TAA_SHADER_HANDLE, TONE_MAPPING_SHADER_HANDLE,
-    WORKGROUP_SIZE,
+    WORKGROUP_SIZE, FSR2_LUMINANCE_PYRAMID_HANDLE
 };
 use bevy::{
     pbr::ViewLightsUniformOffset,
@@ -46,6 +46,7 @@ pub struct PostProcessPipeline {
     pub denoise_render_layout: BindGroupLayout,
     pub tone_mapping_layout: BindGroupLayout,
     pub taa_layout: BindGroupLayout,
+    pub upscale_layout: BindGroupLayout,
     pub output_layout: BindGroupLayout,
 }
 
@@ -265,6 +266,18 @@ impl FromWorld for PostProcessPipeline {
             ],
         });
 
+        let upscale_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Sampler(SamplerBindingType::Filtering),
+                    count: None,
+                },
+            ],
+        });
+
         let output_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: None,
             entries: &[BindGroupLayoutEntry {
@@ -287,6 +300,7 @@ impl FromWorld for PostProcessPipeline {
             denoise_render_layout,
             tone_mapping_layout,
             taa_layout,
+            upscale_layout,
             output_layout,
         }
     }
@@ -301,6 +315,7 @@ pub enum PostProcessEntryPoint {
     Taa = 1,
     JasmineTaa = 2,
     Denoise = 3,
+    Upscale = 4,
 }
 
 bitflags::bitflags! {
@@ -312,7 +327,7 @@ bitflags::bitflags! {
 }
 
 impl PostProcessPipelineKey {
-    const ENTRY_POINT_MASK_BITS: u32 = 0b11;
+    const ENTRY_POINT_MASK_BITS: u32 = 6u32;
     const DENOISE_LEVEL_MASK_BITS: u32 = 0b11;
     const DENOISE_LEVEL_SHIFT_BITS: u32 = 32 - 2;
 
@@ -345,6 +360,8 @@ impl SpecializedComputePipeline for PostProcessPipeline {
             .unwrap()
             .into();
 
+        let mut shader_defs: Vec<String> = vec![];
+
         let (layout, shader) = match key.entry_point() {
             PostProcessEntryPoint::Denoise => {
                 let layout = vec![
@@ -354,6 +371,9 @@ impl SpecializedComputePipeline for PostProcessPipeline {
                     self.denoise_internal_layout.clone(),
                     self.denoise_render_layout.clone(),
                 ];
+
+                shader_defs.push(format!("DENOISE_LEVEL_{}", key.denoise_level()));
+
                 let shader = DENOISE_SHADER_HANDLE.typed();
                 (layout, shader)
             }
@@ -376,13 +396,22 @@ impl SpecializedComputePipeline for PostProcessPipeline {
                     self.taa_layout.clone(),
                     self.output_layout.clone(),
                 ];
-                let shader = TAA_SHADER_HANDLE.typed();
+                let shader = TAA_SHADER_HANDLE.typed();                
                 (layout, shader)
             }
-        };
-
-        let mut shader_defs = vec![];
-        shader_defs.push(format!("DENOISE_LEVEL_{}", key.denoise_level()));
+            PostProcessEntryPoint::Upscale => {
+                let layout = vec![
+                    self.view_layout.clone(),
+                    self.deferred_layout.clone(),
+                    self.sampler_layout.clone(),
+                    self.upscale_layout.clone(),
+                    self.output_layout.clone(),
+                ];
+                println!("Upscale layout was taken");
+                let shader = FSR2_LUMINANCE_PYRAMID_HANDLE.typed();                
+                (layout, shader)
+            }
+        };        
 
         ComputePipelineDescriptor {
             label: None,
@@ -482,6 +511,7 @@ pub struct CachedPostProcessPipelines {
     tone_mapping: CachedComputePipelineId,
     taa: CachedComputePipelineId,
     taa_jasmine: CachedComputePipelineId,
+    upscale: CachedComputePipelineId,
 }
 
 fn queue_post_process_pipelines(
@@ -497,19 +527,27 @@ fn queue_post_process_pipelines(
     });
 
     let key = PostProcessPipelineKey::from_entry_point(PostProcessEntryPoint::ToneMapping);
+    //println!("key -1 is {:?}", key);
     let tone_mapping = pipelines.specialize(&mut pipeline_cache, &pipeline, key);
 
     let key = PostProcessPipelineKey::from_entry_point(PostProcessEntryPoint::Taa);
+    //println!("key 0 is {:?}", key);
     let taa = pipelines.specialize(&mut pipeline_cache, &pipeline, key);
 
     let key = PostProcessPipelineKey::from_entry_point(PostProcessEntryPoint::JasmineTaa);
+    //println!("key 1 is {:?}", key);
     let taa_jasmine = pipelines.specialize(&mut pipeline_cache, &pipeline, key);
+
+    let key = PostProcessPipelineKey::from_entry_point(PostProcessEntryPoint::Upscale);
+    //println!("key 2 is {:?}", key);
+    let upscale = pipelines.specialize(&mut pipeline_cache, &pipeline, key);
 
     commands.insert_resource(CachedPostProcessPipelines {
         denoise,
         tone_mapping,
         taa,
         taa_jasmine,
+        upscale
     })
 }
 
@@ -523,6 +561,7 @@ pub struct PostProcessBindGroup {
     pub tone_mapping_output: BindGroup,
     pub taa: BindGroup,
     pub taa_output: BindGroup,
+    pub upscale: BindGroup,
 }
 
 fn queue_post_process_bind_groups(
@@ -709,6 +748,17 @@ fn queue_post_process_bind_groups(
             }],
         });
 
+        let upscale = render_device.create_bind_group(&BindGroupDescriptor {
+            label: None,
+            layout: &pipeline.upscale_layout,
+            entries: &[
+                BindGroupEntry {
+                    binding: 0,
+                    resource: BindingResource::Sampler(&post_process.nearest_sampler),
+                },
+            ],
+        });
+
         commands.entity(entity).insert(PostProcessBindGroup {
             deferred,
             sampler,
@@ -718,6 +768,7 @@ fn queue_post_process_bind_groups(
             tone_mapping_output,
             taa,
             taa_output,
+            upscale
         });
     }
 }
@@ -835,6 +886,16 @@ impl Node for PostProcessPassNode {
                 let count = (size + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
                 pass.dispatch_workgroups(count.x, count.y, 1);
             }
+        }
+
+        pass.set_bind_group(3, &post_process_bind_group.upscale, &[]);
+
+        if let Some(pipeline) = pipeline_cache.get_compute_pipeline(pipelines.upscale) {
+            pass.set_pipeline(pipeline);            
+
+            let size = camera.physical_target_size.unwrap();
+            let count = (size + WORKGROUP_SIZE - 1) / WORKGROUP_SIZE;
+            pass.dispatch_workgroups(count.x, count.y, 1);
         }
 
         Ok(())

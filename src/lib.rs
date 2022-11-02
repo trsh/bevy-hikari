@@ -84,6 +84,8 @@ pub const OVERLAY_SHADER_HANDLE: HandleUntyped =
     HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 10969344919103020615);
 pub const QUAD_MESH_HANDLE: HandleUntyped =
     HandleUntyped::weak_from_u64(Mesh::TYPE_UUID, 4740146776519512271);
+pub const FSR2_LUMINANCE_PYRAMID_HANDLE: HandleUntyped =
+    HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 10969344919103020616); // TODO what is this?
 
 pub struct HikariPlugin;
 impl Plugin for HikariPlugin {
@@ -177,6 +179,23 @@ impl Plugin for HikariPlugin {
             OVERLAY_SHADER_HANDLE,
             "shaders/overlay.wgsl",
             Shader::from_wgsl
+        );
+        
+        /*let mut assets = app.world.resource_mut::<Assets<_>>();
+        assets.set_untracked(
+            FSR2_LUMINANCE_PYRAMID_HANDLE, 
+            Shader::from_glsl(
+                include_str!("shaders/fsr2/ffx_fsr2_compute_luminance_pyramid_pass.glsl"),
+                ShaderStage::Compute
+            )
+        );*/
+
+        let mut assets = app.world.resource_mut::<Assets<_>>();
+        assets.set_untracked(
+            FSR2_LUMINANCE_PYRAMID_HANDLE, 
+            Shader::from_spirv(
+                include_bytes!("shaders/fsr2/ffx_fsr2_compute_luminance_pyramid_pass.spv").as_ref()
+            )
         );
 
         let noise_load_system = move |mut commands: Commands, mut images: ResMut<Assets<Image>>| {
