@@ -1,2 +1,0 @@
-C:\Projects\amd\FidelityFX-FSR2\tools\sc\glslangValidator.exe --target-env vulkan1.1 -S comp -e CS -o ffx_fsr2_compute_luminance_pyramid_pass.spv -V -D ffx_fsr2_compute_luminance_pyramid_pass.hlsl
-C:\VulkanSDK\1.3.216.0\Bin\glslangValidator.exe --target-env vulkan1.3 -S comp -o ffx_fsr2_compute_luminance_pyramid_pass.spv -V ffx_fsr2_compute_luminance_pyramid_pass.glsl
