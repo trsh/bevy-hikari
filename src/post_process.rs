@@ -1,9 +1,11 @@
 use crate::{
     light::{LightPassTextures, VARIANCE_TEXTURE_FORMAT},
+    nis::{create_coef_scale_tex, create_coef_usm_tex},
     prepass::{PrepassBindGroup, PrepassPipeline, PrepassTextures},
     view::{FrameCounter, FrameUniform, PreviousViewUniformOffset},
     HikariConfig, UpscaleVersion, DENOISE_SHADER_HANDLE, FSR1_EASU_HANDLE, FSR1_RCAS_HANDLE,
-    TAA_SHADER_HANDLE, TONE_MAPPING_SHADER_HANDLE, WORKGROUP_SIZE,
+    NIS_SCALE_HANDLE, NIS_USM_HANDLE, TAA_SHADER_HANDLE, TONE_MAPPING_SHADER_HANDLE,
+    WORKGROUP_SIZE,
 };
 use bevy::{
     ecs::query::QueryItem,
@@ -18,7 +20,7 @@ use bevy::{
         render_asset::RenderAssets,
         render_graph::{Node, NodeRunError, RenderGraphContext, SlotInfo, SlotType},
         render_resource::*,
-        renderer::{RenderContext, RenderDevice},
+        renderer::{RenderContext, RenderDevice, RenderQueue},
         texture::{FallbackImage, TextureCache},
         view::ViewUniformOffset,
         RenderApp, RenderStage,
@@ -63,6 +65,7 @@ impl FromWorld for PostProcessPipeline {
         let view_layout = world.resource::<PrepassPipeline>().view_layout.clone();
 
         let render_device = world.resource::<RenderDevice>();
+        let config = world.resource::<HikariConfig>();
         let deferred_layout = PrepassTextures::bind_group_layout(render_device);
 
         let sampler_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -263,31 +266,72 @@ impl FromWorld for PostProcessPipeline {
             ],
         });
 
-        let upscale_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
-            label: None,
-            entries: &[
-                BindGroupLayoutEntry {
-                    binding: 0,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Buffer {
-                        ty: BufferBindingType::Uniform,
-                        has_dynamic_offset: true,
-                        min_binding_size: Some(FsrConstantsUniform::min_size()),
-                    },
-                    count: None,
-                },
-                BindGroupLayoutEntry {
-                    binding: 1,
-                    visibility: ShaderStages::COMPUTE,
-                    ty: BindingType::Texture {
-                        sample_type: TextureSampleType::Float { filterable: true },
-                        view_dimension: TextureViewDimension::D2,
-                        multisampled: false,
-                    },
-                    count: None,
-                },
-            ],
-        });
+        let upscale_layout = match config.upscale {
+            Some(UpscaleVersion::Fsr1 { .. }) | Some(UpscaleVersion::SmaaTu4x { .. }) | None => {
+                render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                    label: None,
+                    entries: &[
+                        BindGroupLayoutEntry {
+                            binding: 0,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Uniform,
+                                has_dynamic_offset: true,
+                                min_binding_size: Some(FsrConstantsUniform::min_size()),
+                            },
+                            count: None,
+                        },
+                        BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Texture {
+                                sample_type: TextureSampleType::Float { filterable: true },
+                                view_dimension: TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                    ],
+                })
+            }
+            Some(UpscaleVersion::Nis { .. }) => {
+                render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+                    label: None,
+                    entries: &[
+                        BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Texture {
+                                sample_type: TextureSampleType::Float { filterable: true },
+                                view_dimension: TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Texture {
+                                sample_type: TextureSampleType::Float { filterable: true },
+                                view_dimension: TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        BindGroupLayoutEntry {
+                            binding: 1,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Texture {
+                                sample_type: TextureSampleType::Float { filterable: true },
+                                view_dimension: TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                    ],
+                })
+            }
+        };
 
         let output_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: None,
@@ -415,7 +459,9 @@ impl SpecializedComputePipeline for PostProcessPipeline {
                     self.output_layout.clone(),
                 ];
                 entry_point = "main".into();
-                let shader = FSR1_EASU_HANDLE.typed();
+
+                //let shader = FSR1_EASU_HANDLE.typed();
+                let shader = NIS_SCALE_HANDLE.typed(); // TODO need to handle this differently
                 (layout, shader)
             }
             PostProcessEntryPoint::UpscaleSharpen => {
@@ -425,7 +471,9 @@ impl SpecializedComputePipeline for PostProcessPipeline {
                     self.output_layout.clone(),
                 ];
                 entry_point = "main".into();
-                let shader = FSR1_RCAS_HANDLE.typed();
+                
+                //let shader = FSR1_RCAS_HANDLE.typed();                
+                let shader = NIS_USM_HANDLE.typed(); // TODO need to handle this differently                
                 (layout, shader)
             }
         };
@@ -581,11 +629,14 @@ pub struct PostProcessTextures {
     pub taa_internal: [TextureView; 2],
     pub upscale_output: TextureView,
     pub upscale_sharpen_output: TextureView,
+    pub nis_coef_scale: TextureView,
+    pub nis_coef_usm: TextureView,
 }
 
 fn prepare_post_process_textures(
     mut commands: Commands,
     render_device: Res<RenderDevice>,
+    render_queue: Res<RenderQueue>,
     mut texture_cache: ResMut<TextureCache>,
     fallback: Res<FallbackImage>,
     cameras: Query<(Entity, &ExtractedCamera, &FrameCounter, &HikariConfig)>,
@@ -650,8 +701,17 @@ fn prepare_post_process_textures(
                     create_texture(POST_PROCESS_TEXTURE_FORMAT, 2.0 * scale),
                     fallback.texture_view.clone(),
                 ),
+                Some(UpscaleVersion::Nis { .. }) => (
+                    create_texture(POST_PROCESS_TEXTURE_FORMAT, 1.0),
+                    create_texture(POST_PROCESS_TEXTURE_FORMAT, 1.0),
+                ),
                 None => (fallback.texture_view.clone(), fallback.texture_view.clone()),
             };
+
+            let nis_coef_scale =
+                create_coef_scale_tex(&mut texture_cache, &render_device, &render_queue);
+            let nis_coef_usm =
+                create_coef_usm_tex(&mut texture_cache, &render_device, &render_queue);
 
             commands.entity(entity).insert(PostProcessTextures {
                 head: counter.0 % 2,
@@ -664,6 +724,8 @@ fn prepare_post_process_textures(
                 taa_internal,
                 upscale_output,
                 upscale_sharpen_output,
+                nis_coef_scale,
+                nis_coef_usm,
             });
         }
     }

@@ -1,0 +1,2 @@
+%VULKAN_SDK%\Bin\glslangValidator.exe --target-env vulkan1.2 -S comp -e main -o nis_scale.spv -V -D NIS_Scale.hlsl
+%VULKAN_SDK%\Bin\glslangValidator.exe --target-env vulkan1.2 -S comp -e main -o nis_sharpen.spv -V -D NIS_Sharpen.hlsl

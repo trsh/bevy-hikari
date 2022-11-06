@@ -31,6 +31,7 @@ extern crate num_derive;
 
 pub mod light;
 pub mod mesh_material;
+pub mod nis;
 pub mod overlay;
 pub mod post_process;
 pub mod prelude;
@@ -90,7 +91,10 @@ pub const FSR1_EASU_HANDLE: HandleUntyped =
     HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 11823787237582686663);
 pub const FSR1_RCAS_HANDLE: HandleUntyped =
     HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 17003547378277520107);
-
+pub const NIS_SCALE_HANDLE: HandleUntyped =
+    HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 17003547378277520108);
+pub const NIS_USM_HANDLE: HandleUntyped =
+    HandleUntyped::weak_from_u64(Shader::TYPE_UUID, 17003547378277520109);
 pub struct HikariPlugin;
 impl Plugin for HikariPlugin {
     fn build(&self, app: &mut App) {
@@ -192,6 +196,14 @@ impl Plugin for HikariPlugin {
         assets.set_untracked(
             FSR1_RCAS_HANDLE,
             Shader::from_spirv(include_bytes!("shaders/fsr/fsr_pass_rcas.spv").as_ref()),
+        );
+        assets.set_untracked(
+            NIS_SCALE_HANDLE,
+            Shader::from_spirv(include_bytes!("shaders/nis/nis_scale.spv").as_ref()),
+        );
+        assets.set_untracked(
+            NIS_USM_HANDLE,
+            Shader::from_spirv(include_bytes!("shaders/nis/nis_sharpen.spv").as_ref()),
         );
 
         let noise_load_system = move |mut commands: Commands, mut images: ResMut<Assets<Image>>| {
@@ -365,9 +377,9 @@ impl ExtractComponent for HikariConfig {
 impl HikariConfig {
     pub fn upscale_ratio(&self) -> f32 {
         match self.upscale {
-            Some(UpscaleVersion::Fsr1 { ratio, .. }) | Some(UpscaleVersion::SmaaTu4x { ratio }) => {
-                ratio.clamp(1.0, 2.0)
-            }
+            Some(UpscaleVersion::Fsr1 { ratio, .. })
+            | Some(UpscaleVersion::SmaaTu4x { ratio })
+            | Some(UpscaleVersion::Nis { ratio }) => ratio.clamp(1.0, 2.0),
             None => 1.0,
         }
     }
@@ -410,14 +422,18 @@ pub enum UpscaleVersion {
     SmaaTu4x {
         ratio: f32,
     },
+    Nis {
+        ratio: f32,
+    },
 }
 
 impl Default for UpscaleVersion {
     fn default() -> Self {
-        Self::Fsr1 {
+        /*Self::Fsr1 {
             ratio: 1.0,
             sharpness: 0.25,
-        }
+        }*/
+        Self::Nis { ratio: 1.0 }
     }
 }
 

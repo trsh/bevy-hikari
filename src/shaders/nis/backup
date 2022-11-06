@@ -1,0 +1,1 @@
+%VULKAN_SDK%\Bin\glslangValidator.exe --target-env vulkan1.2 -S comp -o nis.spv -V NIS_Main.glsl
