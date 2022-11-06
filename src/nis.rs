@@ -1,11 +1,13 @@
 use std::num::NonZeroU32;
 
 use bevy::{
-    prelude::{Res, ResMut},
+    ecs::query::QueryItem,
+    prelude::{Camera, Component, Res, ResMut},
     render::{
+        extract_component::ExtractComponent,
         render_resource::{
-            Extent3d, ImageDataLayout, TextureDescriptor, TextureDimension, TextureFormat,
-            TextureUsages, TextureView,
+            Extent3d, ImageDataLayout, ShaderType, TextureDescriptor, TextureDimension,
+            TextureFormat, TextureUsages, TextureView,
         },
         renderer::{RenderDevice, RenderQueue},
         texture::TextureCache,
@@ -13,6 +15,10 @@ use bevy::{
 };
 use bytemuck::cast_ref;
 
+use crate::HikariConfig;
+
+// TODO rename ot NISConfigUniform
+#[derive(Debug, Default, Clone, Copy, Component, ShaderType)]
 pub struct NISConfig {
     pub k_detect_ratio: f32,
     pub k_detect_thres: f32,
@@ -51,13 +57,148 @@ pub struct NISConfig {
     pub reserved1: f32,
 }
 
+#[derive(Debug, Default, Clone, Copy, Component, ShaderType)]
+pub struct NisScaleConfig {
+    pub config: NISConfig,
+}
+
+impl NisScaleConfig {
+    fn update_config(
+        &mut self,
+        sharpness: f32,
+        input_viewport_origin_x: u32,
+        input_viewport_origin_y: u32,
+        input_viewport_width: u32,
+        input_viewport_height: u32,
+        input_texture_width: u32,
+        input_texture_height: u32,
+        output_viewport_origin_x: u32,
+        output_viewport_origin_y: u32,
+        output_viewport_width: u32,
+        output_viewport_height: u32,
+        output_texture_width: u32,
+        output_texture_height: u32,
+        hdr_mode: NISHDRMode,
+    ) -> bool {
+        nv_scaler_update_config(
+            &mut self.config,
+            sharpness,
+            input_viewport_origin_x,
+            input_viewport_origin_y,
+            input_viewport_width,
+            input_viewport_height,
+            input_texture_width,
+            input_texture_height,
+            output_viewport_origin_x,
+            output_viewport_origin_y,
+            output_viewport_width,
+            output_viewport_height,
+            output_texture_width,
+            output_texture_height,
+            hdr_mode,
+        )
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, Component, ShaderType)]
+pub struct NisSharpenConfig {
+    pub config: NISConfig,
+}
+
+impl NisSharpenConfig {
+    fn update_config(
+        &mut self,
+        sharpness: f32,
+        input_viewport_origin_x: u32,
+        input_viewport_origin_y: u32,
+        input_viewport_width: u32,
+        input_viewport_height: u32,
+        input_texture_width: u32,
+        input_texture_height: u32,
+        output_viewport_origin_x: u32,
+        output_viewport_origin_y: u32,
+        hdr_mode: NISHDRMode,
+    ) -> bool {
+        nv_sharpen_update_config(
+            &mut self.config,
+            sharpness,
+            input_viewport_origin_x,
+            input_viewport_origin_y,
+            input_viewport_width,
+            input_viewport_height,
+            input_texture_width,
+            input_texture_height,
+            output_viewport_origin_x,
+            output_viewport_origin_y,
+            hdr_mode,
+        )
+    }
+}
+
+impl ExtractComponent for NisScaleConfig {
+    type Query = (&'static Camera, &'static HikariConfig);
+    type Filter = ();
+
+    fn extract_component((camera, config): QueryItem<Self::Query>) -> Self {
+        let size = camera.physical_target_size().unwrap_or_default();
+        let scale = 1.0 / config.upscale_ratio();
+        let before_upscale_size_x = (size.x as f32 * scale).ceil() as u32;
+        let before_upscale_size_y = (size.y as f32 * scale).ceil() as u32;
+
+        let mut nis_config: NisScaleConfig = NisScaleConfig::default();
+        nis_config.update_config(
+            0.25,
+            0,
+            0,
+            before_upscale_size_x,
+            before_upscale_size_y,
+            before_upscale_size_x,
+            before_upscale_size_y,
+            0,
+            0,
+            size.x,
+            size.y,
+            size.x,
+            size.y,
+            NISHDRMode::None,
+        );
+
+        nis_config
+    }
+}
+
+impl ExtractComponent for NisSharpenConfig {
+    type Query = &'static Camera;
+    type Filter = ();
+
+    fn extract_component(camera: QueryItem<Self::Query>) -> Self {
+        let size = camera.physical_target_size().unwrap_or_default();
+
+        let mut nis_config: NisSharpenConfig = NisSharpenConfig::default();
+        nis_config.update_config(
+            0.5,
+            0,
+            0,
+            size.x,
+            size.y,
+            size.x,
+            size.y,
+            0,
+            0,
+            NISHDRMode::None,
+        );
+
+        nis_config
+    }
+}
+
 pub enum NISHDRMode {
     None = 0,
     Linear = 1,
     PQ = 2,
 }
 
-pub fn nv_scaler_update_config(
+fn nv_scaler_update_config(
     config: &mut NISConfig,
     mut sharpness: f32,
     input_viewport_origin_x: u32,
@@ -201,7 +342,7 @@ pub fn nv_scaler_update_config(
     true
 }
 
-pub fn nv_sharpen_update_config(
+fn nv_sharpen_update_config(
     config: &mut NISConfig,
     sharpness: f32,
     input_viewport_origin_x: u32,
@@ -544,7 +685,7 @@ fn create_coef_tex(
     render_device: &Res<RenderDevice>,
     render_queue: &Res<RenderQueue>,
 ) -> TextureView {
-    let texture_usage = TextureUsages::TEXTURE_BINDING | TextureUsages::STORAGE_BINDING;
+    let texture_usage = TextureUsages::TEXTURE_BINDING | TextureUsages::STORAGE_BINDING | TextureUsages::COPY_DST;
     let extent = Extent3d {
         width: w,
         height: h,

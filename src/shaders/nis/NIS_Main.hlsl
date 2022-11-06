@@ -37,14 +37,14 @@
 
 #if NIS_DXC
 #define NIS_PUSH_CONSTANT    [[vk::push_constant]]
-#define NIS_BINDING(bindingIndex) [[vk::binding(bindingIndex, 0)]]
+#define NIS_BINDING(bindingIndex, group) [[vk::binding(bindingIndex, group)]]
 #else
 #define NIS_PUSH_CONSTANT
 #define NIS_BINDING(bindingIndex)
 #endif
 
 
-NIS_BINDING(0) cbuffer cb : register(b0)
+NIS_BINDING(0, 1) cbuffer cb : register(b0, space1)
 {
     float kDetectRatio;
     float kDetectThres;
@@ -83,18 +83,18 @@ NIS_BINDING(0) cbuffer cb : register(b0)
     float reserved1;
 };
 
-NIS_BINDING(1) SamplerState samplerLinearClamp : register(s0);
+NIS_BINDING(1, 0) SamplerState samplerLinearClamp : register(s1, space0);
 #if NIS_NV12_SUPPORT
-NIS_BINDING(2) Texture2D<float> in_texture_y   : register(t0);
-NIS_BINDING(2) Texture2D<float2> in_texture_uv : register(t3);
+//NIS_BINDING(2) Texture2D<float> in_texture_y   : register(t0);
+//NIS_BINDING(2) Texture2D<float2> in_texture_uv : register(t3);
 #else
-NIS_BINDING(2) Texture2D in_texture            : register(t0);
+NIS_BINDING(1, 1) Texture2D in_texture            : register(t1, space1);
 #endif
-NIS_BINDING(3) RWTexture2D<float4> out_texture : register(u0);
-#if NIS_SCALER
-NIS_BINDING(4) Texture2D coef_scaler           : register(t1);
-NIS_BINDING(5) Texture2D coef_usm              : register(t2);
-#endif
+[[spv::format_rgba16f]] NIS_BINDING(0, 2) RWTexture2D<float4> out_texture : register(u0, space2);
+//#if NIS_SCALER
+NIS_BINDING(2, 1) Texture2D coef_scaler           : register(t2, space1);
+NIS_BINDING(3, 1) Texture2D coef_usm              : register(t3, space1);
+//#endif
 
 
 

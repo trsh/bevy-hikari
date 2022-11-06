@@ -1,9 +1,12 @@
 use crate::{
     light::{LightPassTextures, VARIANCE_TEXTURE_FORMAT},
-    nis::{create_coef_scale_tex, create_coef_usm_tex},
+    nis::{
+        create_coef_scale_tex, create_coef_usm_tex, NISConfig, NisScaleConfig, NisSharpenConfig,
+    },
     prepass::{PrepassBindGroup, PrepassPipeline, PrepassTextures},
     view::{FrameCounter, FrameUniform, PreviousViewUniformOffset},
-    HikariConfig, UpscaleVersion, DENOISE_SHADER_HANDLE, FSR1_EASU_HANDLE, FSR1_RCAS_HANDLE,
+    HikariConfig, UpscaleVersion,
+    DENOISE_SHADER_HANDLE, /* , FSR1_EASU_HANDLE, FSR1_RCAS_HANDLE*/
     NIS_SCALE_HANDLE, NIS_USM_HANDLE, TAA_SHADER_HANDLE, TONE_MAPPING_SHADER_HANDLE,
     WORKGROUP_SIZE,
 };
@@ -34,8 +37,15 @@ pub const POST_PROCESS_TEXTURE_FORMAT: TextureFormat = TextureFormat::Rgba16Floa
 pub struct PostProcessPlugin;
 impl Plugin for PostProcessPlugin {
     fn build(&self, app: &mut App) {
+        // TODO except here
         app.add_plugin(ExtractComponentPlugin::<FsrConstantsUniform>::default())
             .add_plugin(UniformComponentPlugin::<FsrConstantsUniform>::default());
+
+        app.add_plugin(ExtractComponentPlugin::<NisScaleConfig>::default())
+            .add_plugin(UniformComponentPlugin::<NisScaleConfig>::default());
+
+        app.add_plugin(ExtractComponentPlugin::<NisSharpenConfig>::default())
+            .add_plugin(UniformComponentPlugin::<NisSharpenConfig>::default());
 
         if let Ok(render_app) = app.get_sub_app_mut(RenderApp) {
             render_app
@@ -65,7 +75,7 @@ impl FromWorld for PostProcessPipeline {
         let view_layout = world.resource::<PrepassPipeline>().view_layout.clone();
 
         let render_device = world.resource::<RenderDevice>();
-        let config = world.resource::<HikariConfig>();
+        //let config = world.resource::<HikariConfig>();
         let deferred_layout = PrepassTextures::bind_group_layout(render_device);
 
         let sampler_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
@@ -266,7 +276,7 @@ impl FromWorld for PostProcessPipeline {
             ],
         });
 
-        let upscale_layout = match config.upscale {
+        /*let upscale_layout = match config.upscale {
             Some(UpscaleVersion::Fsr1 { .. }) | Some(UpscaleVersion::SmaaTu4x { .. }) | None => {
                 render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
                     label: None,
@@ -299,12 +309,12 @@ impl FromWorld for PostProcessPipeline {
                     label: None,
                     entries: &[
                         BindGroupLayoutEntry {
-                            binding: 1,
+                            binding: 0,
                             visibility: ShaderStages::COMPUTE,
-                            ty: BindingType::Texture {
-                                sample_type: TextureSampleType::Float { filterable: true },
-                                view_dimension: TextureViewDimension::D2,
-                                multisampled: false,
+                            ty: BindingType::Buffer {
+                                ty: BufferBindingType::Uniform,
+                                has_dynamic_offset: true,
+                                min_binding_size: Some(NISConfig::min_size()),
                             },
                             count: None,
                         },
@@ -319,7 +329,17 @@ impl FromWorld for PostProcessPipeline {
                             count: None,
                         },
                         BindGroupLayoutEntry {
-                            binding: 1,
+                            binding: 2,
+                            visibility: ShaderStages::COMPUTE,
+                            ty: BindingType::Texture {
+                                sample_type: TextureSampleType::Float { filterable: true },
+                                view_dimension: TextureViewDimension::D2,
+                                multisampled: false,
+                            },
+                            count: None,
+                        },
+                        BindGroupLayoutEntry {
+                            binding: 3,
                             visibility: ShaderStages::COMPUTE,
                             ty: BindingType::Texture {
                                 sample_type: TextureSampleType::Float { filterable: true },
@@ -331,7 +351,53 @@ impl FromWorld for PostProcessPipeline {
                     ],
                 })
             }
-        };
+        };*/
+
+        let upscale_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
+            label: None,
+            entries: &[
+                BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Buffer {
+                        ty: BufferBindingType::Uniform,
+                        has_dynamic_offset: true,
+                        min_binding_size: Some(NISConfig::min_size()),
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 1,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 2,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+                BindGroupLayoutEntry {
+                    binding: 3,
+                    visibility: ShaderStages::COMPUTE,
+                    ty: BindingType::Texture {
+                        sample_type: TextureSampleType::Float { filterable: true },
+                        view_dimension: TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                },
+            ],
+        });
 
         let output_layout = render_device.create_bind_group_layout(&BindGroupLayoutDescriptor {
             label: None,
@@ -471,9 +537,9 @@ impl SpecializedComputePipeline for PostProcessPipeline {
                     self.output_layout.clone(),
                 ];
                 entry_point = "main".into();
-                
-                //let shader = FSR1_RCAS_HANDLE.typed();                
-                let shader = NIS_USM_HANDLE.typed(); // TODO need to handle this differently                
+
+                //let shader = FSR1_RCAS_HANDLE.typed();
+                let shader = NIS_USM_HANDLE.typed(); // TODO need to handle this differently
                 (layout, shader)
             }
         };
@@ -796,6 +862,8 @@ fn queue_post_process_bind_groups(
     images: Res<RenderAssets<Image>>,
     fallback: Res<FallbackImage>,
     fsr_constants_uniforms: Res<ComponentUniforms<FsrConstantsUniform>>,
+    nis_scale_config_uniforms: Res<ComponentUniforms<NisScaleConfig>>,
+    nis_sharpen_config_uniforms: Res<ComponentUniforms<NisSharpenConfig>>,
     query: Query<
         (
             Entity,
@@ -807,7 +875,18 @@ fn queue_post_process_bind_groups(
         With<ExtractedCamera>,
     >,
 ) {
+    // TODO except here?
     let fsr_constants_binding = match fsr_constants_uniforms.binding() {
+        Some(binding) => binding,
+        None => return,
+    };
+
+    let nis_scale_config_binding = match nis_scale_config_uniforms.binding() {
+        Some(binding) => binding,
+        None => return,
+    };
+
+    let nis_sharpen_config_binding = match nis_sharpen_config_uniforms.binding() {
         Some(binding) => binding,
         None => return,
     };
@@ -960,20 +1039,51 @@ fn queue_post_process_bind_groups(
             None => &post_process.tone_mapping_output,
         };
 
-        let upscale = render_device.create_bind_group(&BindGroupDescriptor {
-            label: None,
-            layout: &pipeline.upscale_layout,
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: fsr_constants_binding.clone(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::TextureView(upscale_input_texture),
-                },
-            ],
-        });
+        let upscale = match config.upscale {
+            Some(UpscaleVersion::Fsr1 { .. }) | Some(UpscaleVersion::SmaaTu4x { .. }) | None => {
+                //println!("kaka333");
+                render_device.create_bind_group(&BindGroupDescriptor {
+                    label: None,
+                    layout: &pipeline.upscale_layout,
+                    entries: &[
+                        BindGroupEntry {
+                            binding: 0,
+                            resource: fsr_constants_binding.clone(),
+                        },
+                        BindGroupEntry {
+                            binding: 1,
+                            resource: BindingResource::TextureView(upscale_input_texture),
+                        },
+                    ],
+                })
+            }
+            Some(UpscaleVersion::Nis { .. }) => {
+                //println!("kaka");
+
+                render_device.create_bind_group(&BindGroupDescriptor {
+                    label: None,
+                    layout: &pipeline.upscale_layout,
+                    entries: &[
+                        BindGroupEntry {
+                            binding: 0,
+                            resource: nis_scale_config_binding.clone(),
+                        },
+                        BindGroupEntry {
+                            binding: 1,
+                            resource: BindingResource::TextureView(upscale_input_texture),
+                        },
+                        BindGroupEntry {
+                            binding: 2,
+                            resource: BindingResource::TextureView(&post_process.nis_coef_scale),
+                        },
+                        BindGroupEntry {
+                            binding: 3,
+                            resource: BindingResource::TextureView(&post_process.nis_coef_usm),
+                        },
+                    ],
+                })
+            }
+        };
 
         let upscale_output = render_device.create_bind_group(&BindGroupDescriptor {
             label: None,
@@ -984,20 +1094,48 @@ fn queue_post_process_bind_groups(
             }],
         });
 
-        let upscale_sharpen = render_device.create_bind_group(&BindGroupDescriptor {
-            label: None,
-            layout: &pipeline.upscale_layout,
-            entries: &[
-                BindGroupEntry {
-                    binding: 0,
-                    resource: fsr_constants_binding.clone(),
-                },
-                BindGroupEntry {
-                    binding: 1,
-                    resource: BindingResource::TextureView(&post_process.upscale_output),
-                },
-            ],
-        });
+        let upscale_sharpen = match config.upscale {
+            Some(UpscaleVersion::Fsr1 { .. }) | Some(UpscaleVersion::SmaaTu4x { .. }) | None => {
+                render_device.create_bind_group(&BindGroupDescriptor {
+                    label: None,
+                    layout: &pipeline.upscale_layout,
+                    entries: &[
+                        BindGroupEntry {
+                            binding: 0,
+                            resource: fsr_constants_binding.clone(),
+                        },
+                        BindGroupEntry {
+                            binding: 1,
+                            resource: BindingResource::TextureView(&post_process.upscale_output),
+                        },
+                    ],
+                })
+            }
+            Some(UpscaleVersion::Nis { .. }) => {
+                render_device.create_bind_group(&BindGroupDescriptor {
+                    label: None,
+                    layout: &pipeline.upscale_layout,
+                    entries: &[
+                        BindGroupEntry {
+                            binding: 0,
+                            resource: nis_sharpen_config_binding.clone(),
+                        },
+                        BindGroupEntry {
+                            binding: 1,
+                            resource: BindingResource::TextureView(&post_process.upscale_output),
+                        },
+                        BindGroupEntry {
+                            binding: 2,
+                            resource: BindingResource::TextureView(&post_process.nis_coef_scale),
+                        },
+                        BindGroupEntry {
+                            binding: 3,
+                            resource: BindingResource::TextureView(&post_process.nis_coef_usm),
+                        },
+                    ],
+                })
+            }
+        };
 
         let upscale_sharpen_output = render_device.create_bind_group(&BindGroupDescriptor {
             label: None,
@@ -1036,6 +1174,8 @@ pub struct PostProcessPassNode {
         &'static PostProcessBindGroup,
         &'static DynamicUniformIndex<FsrConstantsUniform>,
         &'static HikariConfig,
+        &'static DynamicUniformIndex<NisScaleConfig>,
+        &'static DynamicUniformIndex<NisSharpenConfig>,
     )>,
 }
 
@@ -1074,6 +1214,8 @@ impl Node for PostProcessPassNode {
             post_process_bind_group,
             fsr_constants_uniform,
             config,
+            nis_scale_config_uniform,
+            nis_sharpen_config_uniform,
         ) = match self.query.get_manual(world, entity) {
             Ok(query) => query,
             Err(_) => return Ok(()),
@@ -1154,8 +1296,9 @@ impl Node for PostProcessPassNode {
                 pass.dispatch_workgroups(count.x, count.y, 1);
             }
         }
+        
 
-        if matches!(config.upscale, Some(UpscaleVersion::Fsr1 { .. })) {
+        /*if matches!(config.upscale, Some(UpscaleVersion::Fsr1 { .. })) {
             pass.set_bind_group(0, &post_process_bind_group.sampler, &[]);
             pass.set_bind_group(
                 1,
@@ -1182,6 +1325,37 @@ impl Node for PostProcessPassNode {
                 pass.set_pipeline(pipeline);
 
                 let count = (size * 2 + 15) / 16;
+                pass.dispatch_workgroups(count.x, count.y, 1);
+            }
+        }*/
+
+        if matches!(config.upscale, Some(UpscaleVersion::Nis { .. })) {
+            pass.set_bind_group(0, &post_process_bind_group.sampler, &[]);
+            pass.set_bind_group(
+                1,
+                &post_process_bind_group.upscale,
+                &[nis_scale_config_uniform.index()],
+            );
+            pass.set_bind_group(2, &post_process_bind_group.upscale_output, &[]);
+
+            if let Some(pipeline) = pipeline_cache.get_compute_pipeline(pipelines.upscale) {
+                pass.set_pipeline(pipeline);
+
+                let count = (size * 2 + 31) / 32;
+                pass.dispatch_workgroups(count.x, count.y, 1);
+            }
+
+            pass.set_bind_group(
+                1,
+                &post_process_bind_group.upscale_sharpen,
+                &[nis_sharpen_config_uniform.index()],
+            );
+            pass.set_bind_group(2, &post_process_bind_group.upscale_sharpen_output, &[]);
+
+            if let Some(pipeline) = pipeline_cache.get_compute_pipeline(pipelines.upscale_sharpen) {
+                pass.set_pipeline(pipeline);
+
+                let count = (size * 2 + 23) / 24;
                 pass.dispatch_workgroups(count.x, count.y, 1);
             }
         }

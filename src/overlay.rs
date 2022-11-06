@@ -199,7 +199,7 @@ fn queue_overlay_bind_groups(
         let current = post_process.head;
 
         let input_texture = match (
-            matches!(config.upscale, Some(UpscaleVersion::Fsr1 { .. })),
+            matches!(config.upscale, Some(UpscaleVersion::Nis { .. })),
             config.temporal_anti_aliasing.is_some(),
         ) {
             (true, _) => &post_process.upscale_sharpen_output,

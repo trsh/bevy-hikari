@@ -429,11 +429,7 @@ pub enum UpscaleVersion {
 
 impl Default for UpscaleVersion {
     fn default() -> Self {
-        /*Self::Fsr1 {
-            ratio: 1.0,
-            sharpness: 0.25,
-        }*/
-        Self::Nis { ratio: 1.0 }
+        Self::Nis { ratio: 2.0 }
     }
 }
 
