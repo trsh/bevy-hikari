@@ -147,7 +147,7 @@ impl ExtractComponent for NisScaleConfig {
 
         let mut nis_config: NisScaleConfig = NisScaleConfig::default();
         let succ = nis_config.update_config(
-            0.0,
+            0.25,
             0,
             0,
             before_upscale_size_x,
@@ -181,7 +181,7 @@ impl ExtractComponent for NisSharpenConfig {
 
         let mut nis_config: NisSharpenConfig = NisSharpenConfig::default();
         let succ = nis_config.update_config(
-            0.0,
+            0.25,
             0,
             0,
             size.x,
