@@ -1341,8 +1341,9 @@ impl Node for PostProcessPassNode {
             if let Some(pipeline) = pipeline_cache.get_compute_pipeline(pipelines.upscale) {
                 pass.set_pipeline(pipeline);
 
-                let count = (size * 2 + 31) / 32;
-                pass.dispatch_workgroups(count.x, count.y, 1);
+                let count_x = (size.x as f32 / 32.0).ceil() as u32;
+                let count_y = (size.y as f32 / 24.0).ceil() as u32;
+                pass.dispatch_workgroups(count_x, count_y, 1);
             }
 
             pass.set_bind_group(
@@ -1355,8 +1356,9 @@ impl Node for PostProcessPassNode {
             if let Some(pipeline) = pipeline_cache.get_compute_pipeline(pipelines.upscale_sharpen) {
                 pass.set_pipeline(pipeline);
 
-                let count = (size * 2 + 23) / 24;
-                pass.dispatch_workgroups(count.x, count.y, 1);
+                let count_x = (size.x as f32 / 32.0).ceil() as u32;
+                let count_y = (size.y as f32 / 32.0).ceil() as u32;
+                pass.dispatch_workgroups(count_x, count_y, 1);
             }
         }
 

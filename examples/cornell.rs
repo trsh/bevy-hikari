@@ -18,11 +18,11 @@ use smooth_bevy_cameras::{
 
 fn main() {
     App::new()
-        // .insert_resource(WindowDescriptor {
-        //     width: 400.,
-        //     height: 300.,
-        //     ..Default::default()
-        // })
+         /*.insert_resource(WindowDescriptor {
+             width: 640.,
+             height: 360.,
+             ..Default::default()
+         })*/
         .insert_resource(Msaa { samples: 4 })
         .insert_resource(ClearColor(Color::BLACK))
         .add_plugins(DefaultPlugins)

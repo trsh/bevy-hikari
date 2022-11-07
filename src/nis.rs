@@ -146,8 +146,8 @@ impl ExtractComponent for NisScaleConfig {
         let before_upscale_size_y = (size.y as f32 * scale).ceil() as u32;
 
         let mut nis_config: NisScaleConfig = NisScaleConfig::default();
-        nis_config.update_config(
-            0.25,
+        let succ = nis_config.update_config(
+            0.0,
             0,
             0,
             before_upscale_size_x,
@@ -162,6 +162,11 @@ impl ExtractComponent for NisScaleConfig {
             size.y,
             NISHDRMode::None,
         );
+
+        //println!("in_x = {:?}", before_upscale_size_x);
+        //println!("in_y = {:?}", before_upscale_size_y);
+        //println!("out_x = {:?}", size.x);
+        //println!("out_y = {:?}", size.y);
 
         nis_config
     }
@@ -175,8 +180,8 @@ impl ExtractComponent for NisSharpenConfig {
         let size = camera.physical_target_size().unwrap_or_default();
 
         let mut nis_config: NisSharpenConfig = NisSharpenConfig::default();
-        nis_config.update_config(
-            0.5,
+        let succ = nis_config.update_config(
+            0.0,
             0,
             0,
             size.x,
@@ -187,6 +192,8 @@ impl ExtractComponent for NisSharpenConfig {
             0,
             NISHDRMode::None,
         );
+
+        //println!("succ sh = {:?}", succ);
 
         nis_config
     }
@@ -376,7 +383,7 @@ fn nv_sharpen_update_config(
 
 pub const K_PHASE_COUNT: usize = 64;
 pub const K_FILTER_SIZE: usize = 8;
-pub const K_ROW_PITCH: usize = K_FILTER_SIZE * 2;
+pub const K_ROW_PITCH: usize = K_FILTER_SIZE * 4;
 pub const K_IMAGE_SIZE: usize = K_PHASE_COUNT * K_ROW_PITCH;
 
 pub const COEF_SCALE: &'static [[f32; K_FILTER_SIZE]; K_PHASE_COUNT] = &[
@@ -655,7 +662,7 @@ pub fn create_coef_scale_tex(
     create_coef_tex(
         (K_FILTER_SIZE / 4) as u32,
         K_PHASE_COUNT as u32,
-        COEF_SCALE_FP16,
+        COEF_SCALE,
         texture_cache,
         render_device,
         render_queue,
@@ -670,7 +677,7 @@ pub fn create_coef_usm_tex(
     create_coef_tex(
         (K_FILTER_SIZE / 4) as u32,
         K_PHASE_COUNT as u32,
-        COEF_USM_FP16,
+        COEF_USM,
         texture_cache,
         render_device,
         render_queue,
@@ -680,12 +687,12 @@ pub fn create_coef_usm_tex(
 fn create_coef_tex(
     w: u32,
     h: u32,
-    data: &[[u16; K_FILTER_SIZE]; K_PHASE_COUNT],
+    data: &[[f32; K_FILTER_SIZE]; K_PHASE_COUNT],
     texture_cache: &mut ResMut<TextureCache>,
     render_device: &Res<RenderDevice>,
     render_queue: &Res<RenderQueue>,
 ) -> TextureView {
-    let texture_usage = TextureUsages::TEXTURE_BINDING | TextureUsages::STORAGE_BINDING | TextureUsages::COPY_DST;
+    let texture_usage = TextureUsages::TEXTURE_BINDING | TextureUsages::COPY_DST | TextureUsages::COPY_SRC;
     let extent = Extent3d {
         width: w,
         height: h,
@@ -699,14 +706,14 @@ fn create_coef_tex(
             mip_level_count: 1,
             sample_count: 1,
             dimension: TextureDimension::D2,
-            format: TextureFormat::Rgba16Float,
+            format: TextureFormat::Rgba32Float,
             usage: texture_usage,
         },
     );
 
     render_queue.write_texture(
         cached_texture.texture.as_image_copy(),
-        cast_ref::<[[u16; K_FILTER_SIZE]; K_PHASE_COUNT], [u8; K_IMAGE_SIZE]>(&data),
+        cast_ref::<[[f32; K_FILTER_SIZE]; K_PHASE_COUNT], [u8; K_IMAGE_SIZE]>(&data),
         ImageDataLayout {
             offset: 0,
             bytes_per_row: Some(NonZeroU32::new(K_ROW_PITCH as u32).unwrap()),

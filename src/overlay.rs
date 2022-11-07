@@ -207,6 +207,8 @@ fn queue_overlay_bind_groups(
             (false, false) => &post_process.tone_mapping_output,
         };
 
+        //let input_texture = &post_process.taa_internal[current];
+
         let bind_group = render_device.create_bind_group(&BindGroupDescriptor {
             label: None,
             layout: &pipeline.input_layout,

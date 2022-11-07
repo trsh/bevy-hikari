@@ -26,6 +26,8 @@
 //---------------------------------------------------------------------------------
 
 #define NIS_HLSL 1
+//#define NIS_USE_HALF_PRECISION 1
+#define NIS_CLAMP_OUTPUT 1
 
 #ifndef NIS_SCALER
 #define NIS_SCALER 1
